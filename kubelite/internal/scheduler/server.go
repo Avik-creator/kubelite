@@ -30,6 +30,7 @@ func (srv *Server) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 
+
 	// Agent-facing
 	mux.HandleFunc("POST /register", srv.handleRegister)
 	mux.HandleFunc("POST /heartbeat", srv.handleHeartbeat)
@@ -53,7 +54,22 @@ func (srv *Server) Start(ctx context.Context) error {
 	})
 
 	log.Printf("[scheduler] listening on %s", srv.addr)
-	return http.ListenAndServe(srv.addr, mux)
+	return http.ListenAndServe(srv.addr, corsMiddleware(mux))
+}
+
+// corsMiddleware adds permissive CORS headers so the React dev server (or any
+// browser client) can call the scheduler directly.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ─── agent-facing handlers ────────────────────────────────────────────────────

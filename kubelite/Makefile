@@ -30,10 +30,15 @@ help:
 	@echo "    make scheduler        build the scheduler binary only"
 	@echo "    make kl               build the CLI binary only"
 	@echo ""
-	@echo "  Run (requires Docker running locally)"
+  @echo "  Run (requires Docker running locally)"
 	@echo "    make run-scheduler    start the scheduler on :8080"
 	@echo "    make run-agent        start a single agent on :8081"
 	@echo "    make dev              start scheduler + agent in tmux panes"
+	@echo ""
+	@echo "  UI"
+	@echo "    make ui-install       npm install inside ui/"
+	@echo "    make ui-dev           start Vite dev server on :5173"
+	@echo "    make ui-build         production build → ui/dist/"
 	@echo ""
 	@echo "  Test & quality"
 	@echo "    make test             run all tests"
@@ -88,6 +93,21 @@ dev: build
 	  split-window -h \; \
 	  send-keys "sleep 1 && $(MAKE) run-agent" Enter \; \
 	  attach-session -t kube-lite
+
+# ── ui ───────────────────────────────────────────────────────────────────────────
+UI_DIR := ../ui
+
+.PHONY: ui-install
+ui-install:
+	npm --prefix $(UI_DIR) install
+
+.PHONY: ui-dev
+ui-dev:
+	npm --prefix $(UI_DIR) run dev
+
+.PHONY: ui-build
+ui-build:
+	npm --prefix $(UI_DIR) run build
 
 # ── test & quality ───────────────────────────────────────────────────────────────
 .PHONY: test
