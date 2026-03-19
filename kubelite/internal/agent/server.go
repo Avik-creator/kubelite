@@ -7,7 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os/signal"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	kl "github.com/Avik-creator/pkg/types"
@@ -27,6 +30,11 @@ type Server struct {
 }
 
 func NewServer(nodeID, listenAddr, schedulerAddr string, runner *DockerRunner) *Server {
+	// Ensure schedulerAddr always has an http:// scheme so http.Post doesn't
+	// reject it with "unsupported protocol scheme".
+	if !strings.HasPrefix(schedulerAddr, "http://") && !strings.HasPrefix(schedulerAddr, "https://") {
+		schedulerAddr = "http://" + schedulerAddr
+	}
 	srv := &Server{
 		nodeID:        nodeID,
 		listenAddr:    listenAddr,
@@ -46,11 +54,26 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /logs/{containerID}", s.handleLogs)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
-	// Register with scheduler and start heartbeat loop in the background
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	go s.registerAndHeartbeat()
 
+	httpSrv := &http.Server{Addr: s.listenAddr, Handler: mux}
+
+	go func() {
+		<-ctx.Done()
+		log.Printf("agent %s shutting down…", s.nodeID)
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		httpSrv.Shutdown(shutCtx)
+	}()
+
 	log.Printf("agent %s listening on %s", s.nodeID, s.listenAddr)
-	return http.ListenAndServe(s.listenAddr, mux)
+	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 // handleRun starts a container as instructed by the scheduler.
@@ -249,9 +272,17 @@ func (s *Server) syncContainerStates(ctx context.Context) {
 // on a fixed interval forever. If the scheduler is unreachable at startup,
 // it retries every 5 seconds until it succeeds.
 func (s *Server) registerAndHeartbeat() {
+	// ":8081" is a valid listen address but not a routable one — the scheduler
+	// needs a host it can actually dial. Default to 127.0.0.1 when the listen
+	// address has no host (single-machine setup). Override KL_ADVERTISE_ADDR
+	// for multi-host deployments.
+	advertise := s.listenAddr
+	if strings.HasPrefix(advertise, ":") {
+		advertise = "127.0.0.1" + advertise
+	}
 	regPayload := kl.RegisterRequest{
 		NodeID:  s.nodeID,
-		Address: s.listenAddr,
+		Address: advertise,
 		// CPUCores and MemoryMB could be read from /proc/cpuinfo and /proc/meminfo
 		CPUCores: 4,
 		MemoryMB: 8192,

@@ -79,6 +79,11 @@ func (d *DockerRunner) Run(ctx context.Context, req kl.RunRequest) (string, erro
 	}
 
 	if _, err := d.cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
+		// Remove the created-but-not-started container so Docker releases any
+		// resources it reserved (port bindings, etc.). Without this, a failed
+		// start leaves an orphan in "created" state that causes every subsequent
+		// attempt to fail with "port already allocated".
+		d.cli.ContainerRemove(context.Background(), resp.ID, client.ContainerRemoveOptions{Force: true})
 		return "", fmt.Errorf("starting container %s: %w", resp.ID, err)
 	}
 

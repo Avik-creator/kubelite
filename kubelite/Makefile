@@ -30,7 +30,7 @@ help:
 	@echo "    make scheduler        build the scheduler binary only"
 	@echo "    make kl               build the CLI binary only"
 	@echo ""
-  @echo "  Run (requires Docker running locally)"
+	@echo "  Run (requires Docker running locally)"
 	@echo "    make run-scheduler    start the scheduler on :8080"
 	@echo "    make run-agent        start a single agent on :8081"
 	@echo "    make dev              start scheduler + agent in tmux panes"
