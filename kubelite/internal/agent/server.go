@@ -84,7 +84,13 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerID, err := s.runner.Run(r.Context(), req)
+	// Use a context that outlives the HTTP request so a scheduler-side timeout
+	// (e.g. during a slow image pull) doesn't cancel the Docker operation.
+	// 10 minutes is generous — even a large image pull on a slow link fits.
+	runCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	containerID, err := s.runner.Run(runCtx, req)
 	if err != nil {
 		log.Printf("run failed for workload %s: %v", req.WorkloadID, err)
 		resp := kl.RunResponse{Error: err.Error()}

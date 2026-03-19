@@ -37,7 +37,9 @@ func New() *Scheduler {
 	s := &Scheduler{
 		registry:         newNodeRegistry(),
 		state:            newStateStore(),
-		httpClient:       &http.Client{Timeout: 10 * time.Second},
+		// 5 min covers slow image pulls on first deploy; heartbeat/status calls
+		// are fast so this doesn't mask real connectivity problems.
+		httpClient: &http.Client{Timeout: 5 * time.Minute},
 		reconcileTrigger: make(chan struct{}, 1),
 	}
 	s.rollouts = newRolloutController(s)
