@@ -25,17 +25,32 @@ type Scheduler struct {
 
 	// Round-robin counter for node selection (accessed via atomic).
 	rrIdx uint64
+
+	// reconcileTrigger allows Deploy/Scale to wake the reconcile loop
+	// immediately without racing with it.  Capacity 1: at most one
+	// pending trigger can queue up; extras are silently dropped.
+	reconcileTrigger chan struct{}
 }
 
 // New creates a fully wired Scheduler.
 func New() *Scheduler {
 	s := &Scheduler{
-		registry:   newNodeRegistry(),
-		state:      newStateStore(),
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		registry:         newNodeRegistry(),
+		state:            newStateStore(),
+		httpClient:       &http.Client{Timeout: 10 * time.Second},
+		reconcileTrigger: make(chan struct{}, 1),
 	}
 	s.rollouts = newRolloutController(s)
 	return s
+}
+
+// triggerReconcile wakes the reconcile loop as soon as possible.
+// Non-blocking: if a trigger is already queued the call is a no-op.
+func (s *Scheduler) triggerReconcile() {
+	select {
+	case s.reconcileTrigger <- struct{}{}:
+	default:
+	}
 }
 
 // Start launches all background loops.  It is non-blocking; call it before
@@ -69,6 +84,13 @@ func (s *Scheduler) reconcileLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			s.reconcile(ctx)
+		case <-s.reconcileTrigger:
+			// Drain the ticker so we don't double-reconcile right after a trigger.
+			select {
+			case <-t.C:
+			default:
+			}
 			s.reconcile(ctx)
 		}
 	}
@@ -127,31 +149,36 @@ func (s *Scheduler) reconcileWorkload(ctx context.Context, spec kl.WorkloadSpec)
 
 // ─── core operations ──────────────────────────────────────────────────────────
 
-// Deploy upserts a workload and immediately reconciles it.
-func (s *Scheduler) Deploy(ctx context.Context, spec kl.WorkloadSpec) error {
+// Deploy upserts a workload and wakes the reconcile loop.
+// The reconcile loop is the single goroutine that ever starts containers,
+// so triggering it (rather than calling reconcileWorkload directly) prevents
+// concurrent reconcile races that cause over-provisioning.
+func (s *Scheduler) Deploy(_ context.Context, spec kl.WorkloadSpec) error {
 	s.state.UpsertWorkload(spec)
-	s.reconcileWorkload(ctx, spec)
+	s.triggerReconcile()
 	return nil
 }
 
-// Scale adjusts the replica count and reconciles immediately.
-func (s *Scheduler) Scale(ctx context.Context, workloadID string, replicas int) error {
+// Scale adjusts the replica count and wakes the reconcile loop.
+func (s *Scheduler) Scale(_ context.Context, workloadID string, replicas int) error {
 	spec, ok := s.state.GetWorkload(workloadID)
 	if !ok {
 		return fmt.Errorf("workload %s not found", workloadID)
 	}
 	spec.Replicas = replicas
 	s.state.UpsertWorkload(spec)
-	s.reconcileWorkload(ctx, spec)
+	s.triggerReconcile()
 	return nil
 }
 
-// Delete stops every running container for a workload and removes it.
+// Delete stops every container for a workload and removes it from state.
+// Stopping is done inline (it's a user-initiated action, not a reconcile step)
+// but we delete the spec first so the reconcile loop won't try to restart anything.
 func (s *Scheduler) Delete(ctx context.Context, workloadID string) error {
+	s.state.DeleteWorkload(workloadID) // remove spec before stopping so reconciler ignores it
 	for _, inst := range s.state.RunningInstancesFor(workloadID) {
 		s.stopInstance(ctx, inst)
 	}
-	s.state.DeleteWorkload(workloadID)
 	return nil
 }
 
