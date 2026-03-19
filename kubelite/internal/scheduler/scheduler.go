@@ -172,7 +172,7 @@ func (s *Scheduler) startReplica(ctx context.Context, spec kl.WorkloadSpec, imag
 		Image:       image,
 		Name:        fmt.Sprintf("%s-%d", spec.Name, time.Now().UnixMilli()),
 		Env:         spec.Env,
-		Ports:       spec.Ports,
+		Ports:       autoAssignHostPorts(spec.Ports, spec.Replicas),
 		HealthCheck: spec.HealthCheck,
 	}
 	var resp kl.RunResponse
@@ -290,4 +290,34 @@ func (s *Scheduler) agentPost(ctx context.Context, addr, path string, body, out 
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
+}
+
+// autoAssignHostPorts returns port mappings safe to use across multiple replicas.
+//
+// When replicas == 1 the mappings are returned unchanged — the single replica
+// gets exactly the host ports the user specified.
+//
+// When replicas > 1, host ports are zeroed out so Docker picks a unique
+// available port for each container.  This mirrors Kubernetes behaviour: you
+// don't statically bind the same host port on multiple replicas of a workload;
+// you let the platform assign ports and use service-discovery to find them.
+//
+// Example: spec has [{HostPort:3000, ContainerPort:80}] with replicas=3.
+//   - Replica 1 → Docker auto-assigns e.g. 49312:80
+//   - Replica 2 → Docker auto-assigns e.g. 49313:80
+//   - Replica 3 → Docker auto-assigns e.g. 49314:80
+//   Run `kl discover <name>` to see the actual assigned ports.
+func autoAssignHostPorts(ports []kl.PortMapping, replicas int) []kl.PortMapping {
+	if replicas <= 1 || len(ports) == 0 {
+		return ports
+	}
+	out := make([]kl.PortMapping, len(ports))
+	for i, p := range ports {
+		out[i] = kl.PortMapping{
+			HostPort:      0, // 0 → Docker picks an available ephemeral port
+			ContainerPort: p.ContainerPort,
+			Protocol:      p.Protocol,
+		}
+	}
+	return out
 }

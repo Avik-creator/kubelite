@@ -264,7 +264,8 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
 .kv-row  { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .kv-sep  { color: var(--text-3); flex-shrink: 0; }
 .form-footer { margin-top: 28px; }
-.form-error  { color: var(--red); font-size: 13px; margin-top: 10px; }
+.form-error  { color: var(--red);    font-size: 13px; margin-top: 10px; }
+.form-hint   { color: var(--yellow); font-size: 12px; margin: 6px 0 10px; background: var(--yellow-dim); border-radius: var(--radius); padding: 8px 10px; }
 
 /* ── inputs & buttons ────────────────────────────────────────────────────────── */
 .input {

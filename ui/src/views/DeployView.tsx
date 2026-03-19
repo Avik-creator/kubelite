@@ -112,6 +112,12 @@ export function DeployView({ onDone }: { onDone: () => void }) {
             <h3 className="section-title">Port mappings</h3>
             <button type="button" className="btn btn--ghost btn--xs" onClick={addPort}>+ add</button>
           </div>
+          {Number(replicas) > 1 && ports.some(p => p.host) && (
+            <p className="form-hint">
+              ℹ Host ports are auto-assigned by Docker when replicas &gt; 1 — each container gets its own unique host port.
+              Use <code>kl discover {name || "&lt;name&gt;"}</code> to see the actual assigned ports.
+            </p>
+          )}
           {ports.map((p, i) => (
             <div key={i} className="kv-row">
               <input className="input" placeholder="Host port" value={p.host}
